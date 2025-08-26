@@ -1,0 +1,153 @@
+/* App.css — minimal design system + Tailwind-ish shims for the sandbox
+   Works even without Tailwind. Safe to use alongside it. */
+
+/* ---------- Base & tokens ---------- */
+:root{
+  --bg: #f9fafb;          /* gray-50 */
+  --panel: #ffffff;
+  --text: #111827;        /* gray-900 */
+  --muted: #4b5563;       /* gray-600 */
+  --border: #e5e7eb;      /* gray-200 */
+  --ring: #6366f1;        /* indigo-500/600-ish */
+
+  --green-50:#ecfdf5; --green-200:#a7f3d0;
+  --red-50:#fef2f2;   --red-200:#fecaca;
+  --indigo-600:#4f46e5;
+  --gray-900:#111827; --gray-200:#e5e7eb; --gray-50:#f9fafb;
+}
+
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font: 14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,"Noto Sans",sans-serif;
+}
+
+/* a11y focus */
+:focus-visible{outline:2px solid var(--ring); outline-offset:2px}
+
+/* Links (rare in this app) */
+a{color:var(--indigo-600);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---------- Layout helpers (match your JSX classes) ---------- */
+.min-h-screen{min-height:100vh}
+.bg-gray-50{background:var(--bg)}
+.bg-white{background:#fff}
+.text-gray-900{color:var(--gray-900)}
+.text-gray-600{color:var(--muted)}
+.text-white{color:#fff}
+.p-6{padding:1.5rem}
+.mb-6{margin-bottom:1.5rem}
+.mb-3{margin-bottom:.75rem}
+.mb-2{margin-bottom:.5rem}
+.mb-1{margin-bottom:.25rem}
+.mt-4{margin-top:1rem}
+.mt-3{margin-top:.75rem}
+.mt-2{margin-top:.5rem}
+.mt-1{margin-top:.25rem}
+.mx-auto{margin-left:auto;margin-right:auto}
+.max-w-6xl{max-width:72rem}
+
+/* grid */
+.grid{display:grid; gap:1rem}
+[class*="grid-cols-3"]{grid-template-columns:1fr}
+@media (min-width:768px){
+  [class*="md:grid-cols-3"]{grid-template-columns:1fr 1fr 1fr}
+  /* span helpers via attribute selectors (since JSX uses md:col-span-*) */
+  [class*="md:col-span-1"]{grid-column:span 1}
+  [class*="md:col-span-2"]{grid-column:span 2}
+}
+
+/* cards/panels */
+.rounded-2xl{border-radius:1rem}
+.shadow{box-shadow:0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05)}
+.border{border:1px solid var(--border)}
+.border-green-200{border-color:var(--green-200)}
+.border-red-200{border-color:var(--red-200)}
+.bg-green-50{background:var(--green-50)}
+.bg-red-50{background:var(--red-50)}
+
+/* typography scale used */
+.text-2xl{font-size:1.5rem; line-height:2rem}
+.font-bold{font-weight:700}
+.font-semibold{font-weight:600}
+.font-medium{font-weight:500}
+.text-sm{font-size:.875rem}
+.text-xs{font-size:.75rem}
+
+/* ---------- Form elements ---------- */
+label{display:block; font-size:.875rem; color:var(--muted); margin-bottom:.25rem}
+
+input, select{
+  width:100%; padding:.5rem .5rem;
+  border:1px solid var(--border); border-radius:.5rem;
+  background:#fff; color:var(--text);
+  transition:border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus{
+  border-color:var(--ring);
+  box-shadow:0 0 0 3px rgba(79,70,229,.2);
+}
+
+/* ---------- Buttons (match your three variants) ---------- */
+button{
+  appearance:none; border:0; cursor:pointer;
+  padding:.4rem .75rem; border-radius:.5rem;
+  font-size:.75rem; line-height:1rem; font-weight:600;
+  transition:transform .05s ease, box-shadow .15s ease, background .15s;
+  display:inline-flex; align-items:center; gap:.35rem;
+}
+
+.bg-gray-900{background:#111827; color:#fff}
+.bg-gray-900:hover{background:#0b1220}
+.bg-gray-200{background:#e5e7eb; color:#111827}
+.bg-gray-200:hover{background:#d1d5db}
+.bg-indigo-600{background:var(--indigo-600); color:#fff}
+.bg-indigo-600:hover{background:#4438ca}
+
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.6; cursor:not-allowed}
+
+/* ---------- Code blocks / receipts / CSV ---------- */
+pre{
+  margin:0; padding:12px; border-radius:.75rem;
+  background:#f3f4f6; /* gray-100 */
+  border:1px solid var(--border);
+  font: 12px/1.4 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  color:#0f172a; /* slate-900 */
+  overflow:auto;
+}
+.whitespace-pre-wrap{white-space:pre-wrap}
+.whitespace-pre{white-space:pre}
+.leading-5{line-height:1.25rem}
+.overflow-x-auto{overflow-x:auto}
+
+/* ---------- Header & sections ---------- */
+header h1{margin:0 0 .25rem 0}
+header p{margin:.25rem 0 0 0; color:var(--muted)}
+section{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:1rem;
+  box-shadow:0 8px 12px -4px rgba(0,0,0,.06);
+}
+
+/* ---------- Tiny badges / descriptors inside receipts ---------- */
+.badge{
+  display:inline-block; padding:.15rem .4rem; border-radius:.375rem;
+  font-size:.7rem; line-height:1rem; background:#eef2ff; color:#3730a3;
+  border:1px solid #e0e7ff;
+}
+
+/* ---------- Utility spacing for button rows ---------- */
+.flex{display:flex}
+.flex-wrap{flex-wrap:wrap}
+.gap-2{gap:.5rem}
+
+/* ---------- Fine details ---------- */
+hr{border:0; border-top:1px solid var(--border); margin:1rem 0}
+small, .read-the-docs{color:#6b7280}
+
+/* Keep Vite starter’s #root centering harmless if present */
+#root{max-width:1280px; margin:0 auto}
