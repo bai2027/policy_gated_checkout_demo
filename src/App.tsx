@@ -157,6 +157,33 @@ function download(filename, content, mime = "text/plain;charset=utf-8") {
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
+function VoucherVerifier({ code, redeemedAt, onRedeem }:{ code:string, redeemedAt:string|null, onRedeem:()=>void }){
+  const [input, setInput] = React.useState(code);
+  const match = input.trim() && input.trim() === (code || "");
+  const status = !code ? "no-issue" : (redeemedAt ? "redeemed" : (match ? "valid" : "mismatch"));
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 items-center">
+        <input
+          className="border rounded px-2 py-1 w-64"
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          placeholder="Enter voucher code"
+        />
+        <span className={status==="valid" ? "text-green-700" : status==="redeemed" ? "text-orange-700" : status==="mismatch" ? "text-red-700" : "text-gray-600"}>
+          {status==="no-issue" && "No voucher issued"}
+          {status==="valid" && "Valid (not yet redeemed)"}
+          {status==="redeemed" && `Already redeemed at ${new Date(redeemedAt!).toLocaleString()}`}
+          {status==="mismatch" && "Code does not match"}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <button className="px-3 py-1 rounded bg-gray-200" onClick={()=>setInput(code || "")}>Use issued code</button>
+        <button className="px-3 py-1 rounded bg-green-600 text-white" disabled={status!=="valid"} onClick={onRedeem}>Mark Redeemed</button>
+      </div>
+    </div>
+  );
+}
 
 // ---------- PDF Generator ----------
 function generateReceiptPDF(receiptJSON) {
@@ -177,7 +204,7 @@ function generateReceiptPDF(receiptJSON) {
 
   // Key lines
   [
-    `ReceiptID: ${k.receipt_id}     ReconciliationID (RID): ${k.reconciliation_id}`,
+    `ReceiptID: ${k.receipt_id}     ReconciliationID (RID): ${k.reconciliation_id}     Voucher: ${k.voucher?.code ?? "—"}`,
     `OrderID: ${k.order_id}     Timestamp: ${new Date(k.timestamp).toLocaleString()}`,
     `Jurisdiction: ${k.jurisdiction}     Policy Version: ${k.policy?.version}`,
     `Merchant: ${k.merchant?.name} (${k.merchant?.id})     Payout Currency: ${k.merchant?.payout_currency}`,
@@ -194,6 +221,23 @@ function generateReceiptPDF(receiptJSON) {
   autoTable(doc, { startY: y, head: [["Tender","Amount","Value (JPY)","Details"]], body: tenders, styles: { fontSize: 9 } });
   // @ts-ignore
   y = doc.lastAutoTable.finalY + 12;
+
+  // Voucher (if any)
+  const v = k.voucher || {};
+  if (v && (v.code || v.value_jpy || v.expires)) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Voucher","Details"]],
+      body: [
+        ["Code", v.code ?? ""],
+        ["Value (JPY)", v.value_jpy != null ? String(v.value_jpy) : ""],
+        ["Expires", v.expires ? new Date(v.expires).toLocaleString() : ""],
+      ],
+      styles: { fontSize: 9 }, columnStyles: { 0: { cellWidth: 120 } }
+    });
+    // @ts-ignore
+    y = doc.lastAutoTable.finalY + 12;
+  }
 
   // Policy snapshot
   const ps = k.policy?.snapshot || {};
@@ -214,12 +258,21 @@ function generateReceiptPDF(receiptJSON) {
   // @ts-ignore
   y = doc.lastAutoTable.finalY + 12;
 
+  // Decision trace
+  const trace = Array.isArray(k.policy?.trace) ? k.policy.trace : [];
+  if (trace.length) {
+    const body = trace.map((t:any) => [t.rule, t.input ?? "", t.result ?? ""]); 
+    autoTable(doc, { startY: y, head: [["Decision Trace","Input","Result"]], body, styles: { fontSize: 9 } });
+    // @ts-ignore
+    y = doc.lastAutoTable.finalY + 12;
+  }
+
   // Counterparties
   autoTable(doc, {
     startY: y,
     head: [["Counterparty","Fields"]],
     body: [
-      ["Aggregator", `id: ${k.counterparties?.aggregator?.id} | route: ${k.counterparties?.aggregator?.route_id} | txid: ${k.counterparties?.aggregator?.txid}`],
+      ["Aggregator", `id: ${k.counterparties?.aggregator?.id} | route: ${k.counterparties?.aggregator?.route_id} | txid: ${k.counterparties?.aggregator?.txid} | status: ${k.counterparties?.aggregator?.status ?? "ok"}`],
       ["Acquirer",   `id: ${k.counterparties?.acquirer?.id} | batch: ${k.counterparties?.acquirer?.payout_batch_id} | value date: ${k.counterparties?.acquirer?.value_date}`],
     ],
     styles: { fontSize: 9 }, columnStyles: { 0: { cellWidth: 120 } }
@@ -248,7 +301,10 @@ function generateReceiptPDF(receiptJSON) {
   doc.setTextColor(90);
   doc.text("Illustrative specimen for discussion; not an offer of regulated services. Fields subject to change.", margin, y);
 
+  const pdfBlob = doc.output("blob");
+  try { setLastPdfBlob(pdfBlob); } catch {}
   doc.save("receipt.pdf");
+  return pdfBlob;
 }
 
 // ---------- Component ----------
@@ -258,6 +314,12 @@ export default function App() {
   const [tochikaJPY, setTochikaJPY] = useState(8000);
   const [usdcAmt, setUsdcAmt] = useState(20);
   const [cardJPY, setCardJPY] = useState(500);
+  const [aggregatorOutage, setAggregatorOutage] = useState(false);
+  const [forceSlippageBreach, setForceSlippageBreach] = useState(false);
+  const [showVoucherVerify, setShowVoucherVerify] = useState(false);
+  const [voucherRedemptionTs, setVoucherRedemptionTs] = useState<string | null>(null);
+  const [lastPdfBlob, setLastPdfBlob] = useState<Blob | null>(null);
+
   const [rateUSDCJPY, setRateUSDCJPY] = useState(150.75);
   const [holdSec, setHoldSec] = useState(90);
   const [slippageBps, setSlippageBps] = useState(50);
@@ -307,6 +369,10 @@ export default function App() {
   // Build artifacts
   const rid = genRID(jurisdiction, now, 45);
 
+  // Derived scenario flags
+  const violSlippage = forceSlippageBreach ? true : false;
+  const aggregatorUp = !aggregatorOutage;
+
   const receiptJSON = {
     receipt_id: `rcp_${now.toISOString().slice(0,10)}_00123`,
     reconciliation_id: rid,
@@ -317,6 +383,13 @@ export default function App() {
       version: "JP-1.4",
       hash: "a9f1...c2",
       snapshot: policyApplied,
+      trace: [
+        { rule: "on_off", input: policyApplied.on_off, result: policyApplied.on_off === "ON" ? "pass" : "block" },
+        { rule: "max_per_txn", input: `${totalJPY} <= ${policyApplied.max_per_txn_local}`, result: (totalJPY <= Number(String(policyApplied.max_per_txn_local)?.replace(/\D/g,"")||0)) ? "pass" : "block" },
+        { rule: "time_window", input: policyApplied.time_window_local, result: "pass" },
+        { rule: "kyc_level", input: "Partner", result: "pass" },
+        { rule: "sanctions_screen", input: "Pass", result: "pass" }
+      ],
     },
     merchant: {
       id: "MERCH-1029",
@@ -333,16 +406,17 @@ export default function App() {
       }},
       { type: "card", amount_jpy: cardJPY, brand: "visa", authorized: true }
     ],
+    voucher: { code: `VCH-${jurisdiction}-${now.getFullYear()}-0001`, value_jpy: Math.round(totalJPY), expires: new Date(now.getTime()+7*86400000).toISOString() },
     counterparties: {
-      aggregator: { id: "AGG-12", route_id: "r-56f1", payin_address: "0x...e1f9", txid: "0x...ab87" },
-      acquirer: { id: "ACQ-88", payout_batch_id: "POUT-2025-08-27-17", value_date: "T+1" }
+      aggregator: { id: "AGG-12", route_id: "r-56f1", payin_addr: "0x…e1f9", txid: aggregatorUp ? "0x…ab87" : "", status: aggregatorUp ? "ok" : "outage" },
+      acquirer:   { id: "ACQ-88", payout_batch_id: "POUT-2025-08-27-17", value_date: "T+1" }
     },
     payout: { gross_jpy: totalJPY, fees_jpy: 35, net_jpy: Math.round(totalJPY - 35), bank_last4: "1234" },
     evidence: { event_log_hash: "e3b0...98", attachments: ["policy_snapshot.pdf","quote.png"] }
   };
 
   const receiptText = `Points2Perks Receipt — Policy-Gated Checkout (Illustrative)
-ReceiptID: ${receiptJSON.receipt_id}          ReconciliationID (RID): ${rid}
+ReceiptID: ${receiptJSON.receipt_id}          ReconciliationID (RID): ${rid}          Voucher: ${receiptJSON.voucher?.code ?? "—"}
 OrderID: ${receiptJSON.order_id}                      Timestamp (local): ${now.toLocaleString()}
 Jurisdiction: ${jurisdiction} (Domestic)              Policy Version: JP-1.4 (hash: a9f1…c2)
 Merchant: ${merchantName} (${receiptJSON.merchant.id})  Payout Currency: JPY
@@ -351,6 +425,7 @@ Tender Summary
 • Tochika:     ${tochikaJPY.toLocaleString()} JPY (issuer: Hokkoku)                Route: ${policyOK ? "policy-approved" : "blocked"}
 • USDC:        ${usdcAmt.toFixed(2)} USDC  → quoted ${(usdcAmt * rateUSDCJPY).toFixed(0)} JPY             QuoteID: q-89aa; Rate: 1 USDC=${rateUSDCJPY} JPY
 • Card:        ${cardJPY} JPY (fallback)                          Brand: Visa; Auth: yes
+• Voucher issued: ${receiptJSON.voucher.code} (portal verifiable)
 Total:         ${totalJPY.toLocaleString()} JPY
 
 Quote & Hold
@@ -413,11 +488,40 @@ Refunds/Disputes
   // Gate message
   const gateMessage = !policyOK
     ? (policyApplied.on_off === "OFF" ? "Blocked: Policy OFF." : (!windowOK ? "Blocked: Outside time window." : !perTxnOK ? "Blocked: Exceeds per-txn cap." : "Blocked: Policy rule."))
-    : (!quoteOK ? (!holdValid ? "Blocked: Quote hold expired → fail-closed to card." : "Blocked: Slippage bound breached → fail-closed to card.") : "Approved (rules satisfied).");
+    : (!aggregatorUp ? "Blocked: Aggregator outage → fail-closed to card."
+        : (!quoteOK || violSlippage ? (!holdValid ? "Blocked: Quote hold expired → fail-closed to card." : "Blocked: Slippage breached → fail-closed to card.") : "Approved (rules satisfied)."));
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-6">
       <div className="max-w-6xl mx-auto">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={aggregatorOutage} onChange={e=>setAggregatorOutage(e.target.checked)} />
+            Aggregator outage
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={forceSlippageBreach} onChange={e=>setForceSlippageBreach(e.target.checked)} />
+            Force slippage breach
+          </label>
+          <button className="px-3 py-1 rounded bg-blue-600 text-white" onClick={()=>setShowVoucherVerify(v=>!v)}>
+            Verify Voucher
+          </button>
+        </div>
+
+        {showVoucherVerify && (
+          <div className="border rounded-lg p-4 bg-white shadow mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-semibold">Voucher Verification</h3>
+              <button className="text-sm text-gray-600" onClick={()=>setShowVoucherVerify(false)}>Close</button>
+            </div>
+            <VoucherVerifier
+              code={(receiptJSON.voucher?.code) || ""}
+              redeemedAt={voucherRedemptionTs}
+              onRedeem={() => { setVoucherRedemptionTs(new Date().toISOString()); }}
+            />
+          </div>
+        )}
+
         <header className="mb-6">
           <h1 className="text-2xl font-bold">Policy-Gated Checkout — Sandbox Demo</h1>
           <p className="text-sm text-gray-600">Issuer-first • Aggregator-agnostic • Merchants settle in fiat • <span className="font-semibold">concept demo (no production changes)</span></p>
